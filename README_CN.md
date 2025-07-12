@@ -1,4 +1,7 @@
 # ESP32_AIDA64_GP1294AI
+
+🇨🇳 **中文版本** | 🇺🇸 [English Version](README.md)
+
 本项目基于ESP32-2432S028R开发板，使用2.8寸TFT彩色显示屏（240x320分辨率）无线显示电脑AIDA64系统监控数据，支持WiFi时间同步。
 
 ![ESP32 AIDA64系统监控显示器](img/display.jpg)
