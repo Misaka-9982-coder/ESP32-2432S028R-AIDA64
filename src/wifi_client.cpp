@@ -7,18 +7,14 @@ typedef enum
     WIFI_NOT_INIT,
     WIFI_CONNECTING,
     WIFI_CONNECTED,
-    //WIFI_DISCONNECT,
-    //WIFI_RECONNECTING,
     WIFI_STATUS_MAX,
 }WIFI_STATUS;
 
 void taskWifiClient(void *param)
 {
-    bool ret = 0;
     unsigned long reconnectTick = 0;
     unsigned long connectBeginTick = 0;
     unsigned long connectingTick = 0;
-    unsigned long ledTick = 0;
     int wifiStatus = WIFI_NOT_INIT;
 
     wifiPrintLog("taskWifiClient run!\r\n");
@@ -33,9 +29,6 @@ void taskWifiClient(void *param)
 
                 WiFi.begin(WIFI_SSID, WIFI_PASS);
                 wifiPrintLog("Connect to " WIFI_SSID "\r\n");
-                display.print("WIFI begin\r\n");
-                display.print("Connect to " WIFI_SSID "\r\n");
-                display.print("Connecting");
                 connectBeginTick = millis();
             }
 
@@ -46,9 +39,6 @@ void taskWifiClient(void *param)
                 wifiPrintLog("Disconnect!\r\n");
                 wifiPrintLog("Reconnect to " WIFI_SSID "\r\n");
 
-                display.print("WIFI Disconnect!\r\n");
-                display.print("Reconnecting");
-
                 WiFi.reconnect();
                 connectBeginTick = millis();
             }
@@ -58,8 +48,6 @@ void taskWifiClient(void *param)
                 if(getElapsedTick(connectingTick) >= 1000)
                 {
                     wifiPrintLog("Connecting...\r\n");
-
-                    display.print(".");
                     connectingTick = millis();
                 }
 
@@ -68,16 +56,13 @@ void taskWifiClient(void *param)
                     wifiPrintLog("Connect timeout!\r\n");
                     wifiPrintLog("Reconnect\r\n");
 
-                    display.print("WIFI Connect failed!\r\n");
-                    display.print("Reconnecting ");
-
                     WiFi.reconnect();
                     reconnectTick = millis();
                 }
 
                 if(getElapsedTick(connectBeginTick) >= 60000)
                 {
-                    display.setPowerSave(1);//60s未连接关闭屏幕
+                    display_enhanced.setPowerSave(1);//60s未连接关闭屏幕
                     wifiPrintLog("Screen enter PowerSave Mode\r\n");
                 }
             }
@@ -89,19 +74,8 @@ void taskWifiClient(void *param)
                 wifiStatus = WIFI_CONNECTED;
                 wifiPrintLog("Wifi Connect succeed!\r\n");
 
-                display.setPowerSave(0);
-                display.print("Succeed!\r\n");
+                display_enhanced.setPowerSave(0);
             }
-#if 0
-            if(getElapsedTick(ledTick) > 3000)
-            {
-                pinMode(2, OUTPUT);
-                digitalWrite(2, HIGH);
-                delay(5);
-                digitalWrite(2, LOW);
-                ledTick = millis();
-            }
-#endif
         }
 
         delay(100);

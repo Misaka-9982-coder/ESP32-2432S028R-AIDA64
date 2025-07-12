@@ -1,326 +1,552 @@
 #include "display.h"
 #include "config.h"
 
-#define ROW_HEIGHT (u8g2.getMaxCharHeight() * 1.25)
-#define COL_WIDTH u8g2.getMaxCharWidth()
-#define DISPLAY_HEIGHT u8g2.getDisplayHeight()
-#define DISPLAY_WIDTH u8g2.getDisplayWidth()
+// 静态缓冲区大小
+#define BUFFER_SIZE (MAX_X * MAX_Y / 4)
 
-const char *aida_item_title[] = { "TIME", "CPU", "GPU", "MEM", "NET" };
-
-int checkAidaItemTitle(const char *str)
-{
-    const int len = sizeof(aida_item_title) / sizeof(aida_item_title[0]);
-    int i = 0;
-
-    for(i = 0; i < len; i++)
-    {
-        if(strcmp(str, aida_item_title[i]) == 0)
-        {
-            return 0;
-        }
-    }
-
-    return -1;
+SCREEN_DISPLAY_ENHANCED::SCREEN_DISPLAY_ENHANCED() : tft() {
+    screen_dir = SCREEN_DIR_HORIZONTAL;
+    disp = nullptr;
+    buf1 = nullptr;
+    buf2 = nullptr;
+    
+    // 初始化UI对象指针
+    main_screen = nullptr;
+    title_label = nullptr;
+    time_label = nullptr;
+    cpu_bar = nullptr;
+    cpu_label = nullptr;
+    gpu_bar = nullptr;
+    gpu_label = nullptr;
+    mem_bar = nullptr;
+    mem_label = nullptr;
+    
+    // 初始化额外信息标签指针
+    temp_label = nullptr;
+    gpu_temp_label = nullptr;
+    mem_usage_label = nullptr;
+    cpu_freq_label = nullptr;
+    cpu_power_label = nullptr;
+    gpu_power_label = nullptr;
+    gpu_mem_label = nullptr;
+    net_down_label = nullptr;
+    net_up_label = nullptr;
+    local_ip_label = nullptr;
+    external_ip_label = nullptr;
 }
 
-SCREEN_DISPLAY::SCREEN_DISPLAY():u8g2(U8G2_R3, /* cs=*/ CS, /* reset=*/ RST)
-{
-    screen_dir = SCREEN_DIR_VERTICAL;
-    memset(&print_buffer, 0x00, sizeof(print_buffer));
-    memset(&cursor, 0x00, sizeof(cursor));
+SCREEN_DISPLAY_ENHANCED::~SCREEN_DISPLAY_ENHANCED() {
+    if (buf1) free(buf1);
+    if (buf2) free(buf2);
 }
 
-void SCREEN_DISPLAY::begin(int dir)
-{
-    u8g2.begin();
-    u8g2.setFont(u8g2_font_5x7_tf);
-    u8g2.setFontPosTop();
+void SCREEN_DISPLAY_ENHANCED::begin(int dir) {
+    // 初始化TFT
+    tft.init();
     setScreenDir(dir);
+    
+    // 初始化LVGL
+    initLVGL();
+    
+    // 创建UI
+    createUI();
+    
+    displayPrintLog("Enhanced display initialized with LVGL");
 }
 
-void SCREEN_DISPLAY::setScreenDir(int dir)
-{
+void SCREEN_DISPLAY_ENHANCED::setScreenDir(int dir) {
     screen_dir = dir;
-
-    if(screen_dir == SCREEN_DIR_VERTICAL)
-    {
-        u8g2.setDisplayRotation(U8G2_R3);
-    }
-    else if(screen_dir == SCREEN_DIR_HORIZONTAL)
-    {
-        u8g2.setDisplayRotation(U8G2_R2);
+    
+    if (screen_dir == SCREEN_DIR_VERTICAL) {
+        tft.setRotation(0);  // Portrait
+    } else if (screen_dir == SCREEN_DIR_HORIZONTAL) {
+        tft.setRotation(1);  // Landscape
     }
 }
 
-void SCREEN_DISPLAY::displayAida64Data_vertical(std::vector<AIDA64_DATA> &dataList)
-{
-    int u8g2_ret = 0;
-    int pos_y = 0;
-    char str_buf[64] = { 0 };
-
-    u8g2.clearBuffer();
-
-    for(int i = 0; i < dataList.size(); i++)
-    {
-        if(checkAidaItemTitle(dataList[i].val) == 0) // is title
-        {
-            pos_y++;
-            sprintf(str_buf, "%s", dataList[i].val);
-            u8g2_ret = u8g2.drawUTF8(0, pos_y * ROW_HEIGHT, str_buf);
-            pos_y++;
-        }
-        else // is not title
-        {
-            sprintf(str_buf, ">%s", dataList[i].val);
-            u8g2_ret = u8g2.drawUTF8(0, pos_y * ROW_HEIGHT, str_buf);
-            pos_y++;
-        }
+void SCREEN_DISPLAY_ENHANCED::initLVGL() {
+    // 初始化LVGL
+    lv_init();
+    
+    // 分配显示缓冲区
+    buf1 = (lv_color_t*)malloc(BUFFER_SIZE * sizeof(lv_color_t));
+    buf2 = (lv_color_t*)malloc(BUFFER_SIZE * sizeof(lv_color_t));
+    
+    if (!buf1 || !buf2) {
+        displayPrintLog("Failed to allocate LVGL buffers");
+        return;
     }
     
-    u8g2.sendBuffer();
-}
-
-void SCREEN_DISPLAY::displayAida64Data_horizontal(std::vector<AIDA64_DATA> &dataList)
-{
-    int u8g2_ret = 0;
-    int pos_x = 0;
-    int pos_y = -1;
-    char str_buf[64] = { 0 };
-
-    u8g2.clearBuffer();
-
-    for(int i = 0; i < dataList.size(); i++)
-    {
-        if(checkAidaItemTitle(dataList[i].val) == 0) // is title
-        {
-            pos_x = 0;
-            pos_y++;
-            sprintf(str_buf, "%-5s", dataList[i].val);
-            u8g2_ret = u8g2.drawUTF8(pos_x, pos_y * ROW_HEIGHT, str_buf);
-            pos_x += COL_WIDTH * strlen(str_buf);
-        }
-        else // is not title
-        {
-            sprintf(str_buf, " |   %s  ", dataList[i].val);
-            u8g2_ret = u8g2.drawUTF8(pos_x, pos_y * ROW_HEIGHT, str_buf);
-            pos_x += COL_WIDTH * strlen(str_buf);
-        }
-    }
+    // 初始化显示缓冲区
+    lv_disp_draw_buf_init(&draw_buf, buf1, buf2, BUFFER_SIZE);
     
-    u8g2.sendBuffer();
+    // 初始化显示驱动
+    lv_disp_drv_init(&disp_drv);
+    disp_drv.hor_res = MAX_X;
+    disp_drv.ver_res = MAX_Y;
+    disp_drv.flush_cb = disp_flush;
+    disp_drv.draw_buf = &draw_buf;
+    disp_drv.user_data = this;
+    
+    // 注册显示驱动
+    disp = lv_disp_drv_register(&disp_drv);
+    
+    displayPrintLog("LVGL initialized successfully");
 }
 
-void SCREEN_DISPLAY::displayAida64Data(std::vector<AIDA64_DATA> &dataList)
-{
-    if(screen_dir == SCREEN_DIR_VERTICAL)
-    {
-        displayAida64Data_vertical(dataList);
-    }
-    else if(screen_dir == SCREEN_DIR_HORIZONTAL)
-    {
-        displayAida64Data_horizontal(dataList);
-    }
+void SCREEN_DISPLAY_ENHANCED::createUI() {
+    // 创建主屏幕
+    main_screen = lv_scr_act();
+    lv_obj_set_style_bg_color(main_screen, lv_color_black(), 0);
+    
+    // 创建标题
+    title_label = lv_label_create(main_screen);
+    lv_label_set_text(title_label, "AIDA64 System Monitor");
+    lv_obj_set_style_text_color(title_label, lv_color_white(), 0);
+    lv_obj_align(title_label, LV_ALIGN_TOP_MID, 0, 2);
+    
+    // 统一布局：不使用标签页，所有信息显示在一个屏幕上
+    setupSingleScreenLayout();
+    
+    displayPrintLog("UI created successfully");
 }
 
-void SCREEN_DISPLAY::clear()
-{
-    u8g2.clearBuffer();
-    cursor.x = 0;
-    cursor.y = 0;
+void SCREEN_DISPLAY_ENHANCED::setupSingleScreenLayout() {
+    int y_pos = 25; // 从标题下方开始
+    int col1_x = 10;   // 左列X位置
+    int col2_x = 170;  // 右列X位置（增加间距）
+    int line_height = 28; // 增加行高，更大间距
+    
+    // === 第一行：时间（单独一行，居中） ===
+    time_label = lv_label_create(main_screen);
+    lv_label_set_text(time_label, "System Time: --:--:--");
+    lv_obj_set_style_text_color(time_label, lv_color_hex(0x00FF00), 0);
+    lv_obj_align(time_label, LV_ALIGN_TOP_MID, 0, y_pos);
+    y_pos += line_height;
+    
+    // === 第二行：CPU使用率 + CPU温度 ===
+    // CPU使用率（左列）
+    lv_obj_t* cpu_title = lv_label_create(main_screen);
+    lv_label_set_text(cpu_title, "CPU:");
+    lv_obj_set_style_text_color(cpu_title, lv_color_hex(0xFF6666), 0);
+    lv_obj_set_pos(cpu_title, col1_x, y_pos);
+    
+    cpu_label = lv_label_create(main_screen);
+    lv_label_set_text(cpu_label, "0%");
+    lv_obj_set_style_text_color(cpu_label, lv_color_white(), 0);
+    lv_obj_set_pos(cpu_label, col1_x + 40, y_pos);
+    
+    cpu_bar = lv_bar_create(main_screen);
+    lv_obj_set_size(cpu_bar, 70, 12);
+    lv_obj_set_pos(cpu_bar, col1_x + 85, y_pos + 2);
+    lv_obj_set_style_bg_color(cpu_bar, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(cpu_bar, lv_color_hex(0xFF4444), LV_PART_INDICATOR);
+    lv_bar_set_range(cpu_bar, 0, 100);
+    
+    // CPU温度（右列）
+    temp_label = lv_label_create(main_screen);
+    lv_label_set_text(temp_label, "CPU: --°C");
+    lv_obj_set_style_text_color(temp_label, lv_color_hex(0x66CCFF), 0);
+    lv_obj_set_pos(temp_label, col2_x, y_pos);
+    y_pos += line_height;
+    
+    // === 第三行：GPU使用率 + GPU温度 ===
+    // GPU使用率（左列）
+    lv_obj_t* gpu_title = lv_label_create(main_screen);
+    lv_label_set_text(gpu_title, "GPU:");
+    lv_obj_set_style_text_color(gpu_title, lv_color_hex(0x66FF66), 0);
+    lv_obj_set_pos(gpu_title, col1_x, y_pos);
+    
+    gpu_label = lv_label_create(main_screen);
+    lv_label_set_text(gpu_label, "0%");
+    lv_obj_set_style_text_color(gpu_label, lv_color_white(), 0);
+    lv_obj_set_pos(gpu_label, col1_x + 40, y_pos);
+    
+    gpu_bar = lv_bar_create(main_screen);
+    lv_obj_set_size(gpu_bar, 70, 12);
+    lv_obj_set_pos(gpu_bar, col1_x + 85, y_pos + 2);
+    lv_obj_set_style_bg_color(gpu_bar, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(gpu_bar, lv_color_hex(0x44FF44), LV_PART_INDICATOR);
+    lv_bar_set_range(gpu_bar, 0, 100);
+    
+    // GPU温度（右列）
+    gpu_temp_label = lv_label_create(main_screen);
+    lv_label_set_text(gpu_temp_label, "GPU: --°C");
+    lv_obj_set_style_text_color(gpu_temp_label, lv_color_hex(0x66CCFF), 0);
+    lv_obj_set_pos(gpu_temp_label, col2_x, y_pos);
+    y_pos += line_height;
+    
+    // === 第四行：内存使用率 + CPU频率 ===
+    // 内存使用率（左列）
+    lv_obj_t* mem_title = lv_label_create(main_screen);
+    lv_label_set_text(mem_title, "MEM:");
+    lv_obj_set_style_text_color(mem_title, lv_color_hex(0x6666FF), 0);
+    lv_obj_set_pos(mem_title, col1_x, y_pos);
+    
+    mem_label = lv_label_create(main_screen);
+    lv_label_set_text(mem_label, "0%");
+    lv_obj_set_style_text_color(mem_label, lv_color_white(), 0);
+    lv_obj_set_pos(mem_label, col1_x + 40, y_pos);
+    
+    mem_bar = lv_bar_create(main_screen);
+    lv_obj_set_size(mem_bar, 70, 12);
+    lv_obj_set_pos(mem_bar, col1_x + 85, y_pos + 2);
+    lv_obj_set_style_bg_color(mem_bar, lv_color_hex(0x333333), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(mem_bar, lv_color_hex(0x4444FF), LV_PART_INDICATOR);
+    lv_bar_set_range(mem_bar, 0, 100);
+    
+    // CPU频率（右列）
+    cpu_freq_label = lv_label_create(main_screen);
+    lv_label_set_text(cpu_freq_label, "CPU: -- MHz");
+    lv_obj_set_style_text_color(cpu_freq_label, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_pos(cpu_freq_label, col2_x, y_pos);
+    y_pos += line_height;
+    
+    // === 第五行：内存使用量 + CPU功耗 ===
+    // 内存使用量（左列）
+    mem_usage_label = lv_label_create(main_screen);
+    lv_label_set_text(mem_usage_label, "Used: -- MB");
+    lv_obj_set_style_text_color(mem_usage_label, lv_color_hex(0xCCCCCC), 0);
+    lv_obj_set_pos(mem_usage_label, col1_x, y_pos);
+    
+    // CPU功耗（右列）
+    cpu_power_label = lv_label_create(main_screen);
+    lv_label_set_text(cpu_power_label, "CPU: -- W");
+    lv_obj_set_style_text_color(cpu_power_label, lv_color_hex(0xFFCC66), 0);
+    lv_obj_set_pos(cpu_power_label, col2_x, y_pos);
+    y_pos += line_height;
+    
+    // === 第六行：已用显存 + GPU功耗 ===
+    // 已用显存（左列）
+    gpu_mem_label = lv_label_create(main_screen);
+    lv_label_set_text(gpu_mem_label, "VRAM: -- MB");
+    lv_obj_set_style_text_color(gpu_mem_label, lv_color_hex(0x66FFCC), 0);
+    lv_obj_set_pos(gpu_mem_label, col1_x, y_pos);
+    
+    // GPU功耗（右列）
+    gpu_power_label = lv_label_create(main_screen);
+    lv_label_set_text(gpu_power_label, "GPU: -- W");
+    lv_obj_set_style_text_color(gpu_power_label, lv_color_hex(0xFFCC66), 0);
+    lv_obj_set_pos(gpu_power_label, col2_x, y_pos);
+    y_pos += line_height;
+    
+    // === 第七行：网络下载 + 上传 ===
+    net_down_label = lv_label_create(main_screen);
+    lv_label_set_text(net_down_label, "Down: -- KB/s");
+    lv_obj_set_style_text_color(net_down_label, lv_color_hex(0x88FF88), 0);
+    lv_obj_set_pos(net_down_label, col1_x, y_pos);
+    
+    net_up_label = lv_label_create(main_screen);
+    lv_label_set_text(net_up_label, "Up: -- KB/s");
+    lv_obj_set_style_text_color(net_up_label, lv_color_hex(0xFF8888), 0);
+    lv_obj_set_pos(net_up_label, col2_x, y_pos);
+    y_pos += line_height;
+    
+    // === 第八行：内部IP + 外部IP ===
+    local_ip_label = lv_label_create(main_screen);
+    lv_label_set_text(local_ip_label, "Local: ---.---.---.---");
+    lv_obj_set_style_text_color(local_ip_label, lv_color_hex(0xCCFF66), 0);
+    lv_obj_set_pos(local_ip_label, col1_x, y_pos);
+    
+    external_ip_label = lv_label_create(main_screen);
+    lv_label_set_text(external_ip_label, "Ext: ---.---.---.---");
+    lv_obj_set_style_text_color(external_ip_label, lv_color_hex(0xFF66CC), 0);
+    lv_obj_set_pos(external_ip_label, col2_x, y_pos);
 }
 
-void SCREEN_DISPLAY::printBufferAdd(const char *str)
-{
-    char *data_p = print_buffer.data;
-    int head = print_buffer.head;
-    int tail = print_buffer.tail;
-    const char *str_p = str;
-    int next = 0;
-    bool is_empty = 0;
-
-    while(*str_p != '\0')
-    {
-        if(head == 0 && tail == 0)  //buffer is empty
-        {
-            next = 0;
-            is_empty = true;
-        }
-        else
-        {
-            next = (tail + 1) % PRINT_BUFFER_LEN_MAX;
-            is_empty = false;
-        }
-
-        if(next + strlen(str_p) > PRINT_BUFFER_LEN_MAX)
-        {
-            //displayPrintLog("next(%d) + strlen(str_p)(%d) > PRINT_BUFFER_LEN_MAX(%d)", next, strlen(str_p), PRINT_BUFFER_LEN_MAX);
-            memcpy(data_p + next, str_p, PRINT_BUFFER_LEN_MAX - (tail + 1));
-            str_p += PRINT_BUFFER_LEN_MAX - next;
-            tail = PRINT_BUFFER_LEN_MAX - 1;
-            head = 0;
-        }
-        else
-        {
-            //displayPrintLog("next(%d) + strlen(str_p)(%d) <= PRINT_BUFFER_LEN_MAX(%d)", next, strlen(str_p), PRINT_BUFFER_LEN_MAX);
-            memcpy(data_p + next, str_p, strlen(str_p));
-
-            if(head == next && !is_empty)
-            {
-                tail = next - 1 + strlen(str_p);
-                head = (tail + 1) % PRINT_BUFFER_LEN_MAX;
-            }
-            else
-            {
-                tail = next - 1 + strlen(str_p);
-                displayPrintLog("tail:%d", tail);
-            }
-
-            str_p += strlen(str_p);
-            break;
-        }
-    }
-
-    print_buffer.head = head;
-    print_buffer.tail = tail;
+void SCREEN_DISPLAY_ENHANCED::displayAida64Data(std::vector<AIDA64_DATA> &dataList) {
+    updateSystemInfo(dataList);
 }
 
-void SCREEN_DISPLAY::updateBufferLineIndex()
-{
-    char *data_p = print_buffer.data;
-    int head = print_buffer.head;
-    int tail = print_buffer.tail;
-    char *c = data_p + head; // head char
-    int line_len = 0;
-    bool new_line = false;
-
-    line_index_list.clear();
-    while(*c != '\0')
-    {
-        new_line = false;
-
-        if(line_index_list.size() == 0)
-        {
-            line_len = 0;
-            new_line = true;
-            displayPrintLog("new_line, line_index_list.size() == 0");
-        }
-        else if(*c == '\n') //new line
-        {
-            line_len = 0;
-            new_line = true;
-            displayPrintLog("new_line, c - data_p:%d, c:\\n", c - data_p);
-        }
-        else if(*c == '\r') //new line head
-        {
-            line_len = 0;
-            displayPrintLog("c - data_p:%d, c:\\r", c - data_p);
-        }
-        else
-        {
-            line_len++;
-            if(line_len * COL_WIDTH >= DISPLAY_WIDTH) //line full
-            {
-                line_len = 0;
-                new_line = true;
-                displayPrintLog("new_line, c - data_p:%d, c:%d", c - data_p, c);
-            }
-        }
-
-        if(new_line)
-        {
-            line_index_list.push_back(c - data_p + 1);
-        }
-
-        /* next char */
-        c++;
-        if(c - data_p + 1 > PRINT_BUFFER_LEN_MAX)
-        {
-            c = data_p;
-        }
-
-        if(c == data_p + (tail + 1) % PRINT_BUFFER_LEN_MAX)
-        {
-            break;
-        }
-    }
-}
-
-void SCREEN_DISPLAY::print(const char *str)
-{
-    const int row_max = DISPLAY_HEIGHT / ROW_HEIGHT;
-    char *screen_str = NULL;
-    char c[2] = {0};
-
-    printBufferAdd(str);
-    updateBufferLineIndex();
-    displayPrintLog("buffer head:%d, buffer tail:%d", print_buffer.head, print_buffer.tail);
-    displayPrintLog("buffer:");
-    displayPrintLog("%s", print_buffer.data);
-    displayPrintLog("line_index_list:");
-    for(int i = 0; i < line_index_list.size(); i++)
-    {
-        displayPrintLog("%d, ", line_index_list[i]);
-    }
-
-    displayPrintLog("line_index_list.size():%d, row_max:%d, DISPLAY_HEIGHT:%d, ROW_HEIGHT:%f", line_index_list.size(), row_max, DISPLAY_HEIGHT, ROW_HEIGHT);
-    if(line_index_list.size() > row_max)
-    {
-        screen_str = print_buffer.data + line_index_list[line_index_list.size() - row_max];
-    }
-    else
-    {
-        screen_str = print_buffer.data;
-    }
-
-    cursor.x = 0;
-    cursor.y = 0;
-    u8g2.clearBuffer();
-
-    do
-    {
-        //超出屏幕宽度换行
-        if(cursor.y * COL_WIDTH >= DISPLAY_WIDTH && c[0] != '\n')
-        {
-            cursor.y = 0;
-            cursor.x++;
-        }
-
-        c[0] = *screen_str;
-        //displayPrintLog("c:%s", c);
-        if(c[0] == '\n')//换行
-        {
-            cursor.y = 0;
-            cursor.x++;
-        }
-        else if(c[0] == '\r')//回到行首
-        {
-            cursor.y = 0;
-        }
-        else
-        {
-            u8g2.drawStr(COL_WIDTH * cursor.y, ROW_HEIGHT * cursor.x, c);
-            //displayPrintLog("u8g2.drawStr(%s), (%d, %d)", c, cursor.x, cursor.y);
-            cursor.y++;
-        }
-
-        /* next char */
-        screen_str++;
-        //displayPrintLog("screen_str - print_buffer.data + 1:%d", screen_str - print_buffer.data + 1);
-        if(screen_str - print_buffer.data + 1 > PRINT_BUFFER_LEN_MAX)
-        {
-            screen_str = print_buffer.data;
-        }
-        //displayPrintLog("screen_str - print_buffer.data:%d", screen_str - print_buffer.data);
-        //displayPrintLog("screen_str:%c", *screen_str);
+void SCREEN_DISPLAY_ENHANCED::updateTimeDisplay(const String& timeString) {
+    if (time_label) {
+        char timeBuffer[64];
+        snprintf(timeBuffer, sizeof(timeBuffer), "System Time: %s", timeString.c_str());
+        lv_label_set_text(time_label, timeBuffer);
         
-        if(screen_str == print_buffer.data + (print_buffer.tail + 1) % PRINT_BUFFER_LEN_MAX)
-        {
-            break;
+        // 设置时间同步状态颜色
+        if (timeString == "--:--:--") {
+            // 未同步时显示红色
+            lv_obj_set_style_text_color(time_label, lv_color_hex(0xFF4444), 0);
+        } else {
+            // 已同步时显示绿色
+            lv_obj_set_style_text_color(time_label, lv_color_hex(0x00FF00), 0);
         }
-    } while (*screen_str != '\0');
-
-    u8g2.sendBuffer();
+        
+        displayPrintLog("Time updated: %s\r\n", timeString.c_str());
+    }
 }
 
-SCREEN_DISPLAY display;
+void SCREEN_DISPLAY_ENHANCED::updateSystemInfo(std::vector<AIDA64_DATA> &dataList) {
+    char buffer[64];
+    bool display_updated = false;
+    
+    displayPrintLog("Updating system info with %d items\r\n", dataList.size());
+    
+    for (const auto& data : dataList) {
+        displayPrintLog("Processing: ID=%s, Value=%s\r\n", data.id, data.val);
+        
+        // 解析数值数据
+        const char* value_str = data.val;
+        
+        // 根据AIDA64的配置处理特定的ID
+        if (strcmp(data.id, "Simple1") == 0) {
+            // CPU使用率
+            float percentage = 0.0f;
+            if (sscanf(value_str, ">CPU使用率%f%%", &percentage) == 1 || 
+                sscanf(value_str, ">CPU 使用率 %f%%", &percentage) == 1) {
+                if (cpu_bar && cpu_label) {
+                    lv_bar_set_value(cpu_bar, (int)percentage, LV_ANIM_ON);
+                    snprintf(buffer, sizeof(buffer), "%.1f%%", percentage);
+                    lv_label_set_text(cpu_label, buffer);
+                    displayPrintLog("Updated CPU: %.1f%%\r\n", percentage);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple7") == 0) {
+            // 内存使用率
+            float percentage = 0.0f;
+            if (sscanf(value_str, ">内存使用率%f%%", &percentage) == 1 ||
+                sscanf(value_str, ">内存 使用率 %f%%", &percentage) == 1) {
+                if (mem_bar && mem_label) {
+                    lv_bar_set_value(mem_bar, (int)percentage, LV_ANIM_ON);
+                    snprintf(buffer, sizeof(buffer), "%.1f%%", percentage);
+                    lv_label_set_text(mem_label, buffer);
+                    displayPrintLog("Updated Memory: %.1f%%\r\n", percentage);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple2") == 0) {
+            // CPU温度
+            float temp = 0.0f;
+            if (sscanf(value_str, ">中央处理器(CPU) %f", &temp) == 1) {
+                if (temp_label) {
+                    snprintf(buffer, sizeof(buffer), "CPU: %.0f°C", temp);
+                    lv_label_set_text(temp_label, buffer);
+                    displayPrintLog("Updated CPU Temp: %.0f°C\r\n", temp);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple5") == 0) {
+            // GPU温度
+            float temp = 0.0f;
+            if (sscanf(value_str, ">GPU 1 %f", &temp) == 1) {
+                if (gpu_temp_label) {
+                    snprintf(buffer, sizeof(buffer), "GPU: %.0f°C", temp);
+                    lv_label_set_text(gpu_temp_label, buffer);
+                    displayPrintLog("Updated GPU Temp: %.0f°C\r\n", temp);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple8") == 0) {
+            // 已用内存
+            float memory_mb = 0.0f;
+            if (sscanf(value_str, ">已用内存 %f MB", &memory_mb) == 1) {
+                if (mem_usage_label) {
+                    snprintf(buffer, sizeof(buffer), "Used: %.0f MB", memory_mb);
+                    lv_label_set_text(mem_usage_label, buffer);
+                    displayPrintLog("Updated Memory Usage: %.0f MB\r\n", memory_mb);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple3") == 0) {
+            // CPU频率
+            float freq = 0.0f;
+            if (sscanf(value_str, ">CPU 核心频率 %f MHz", &freq) == 1 ||
+                sscanf(value_str, ">CPU核心频率%fMHz", &freq) == 1) {
+                if (cpu_freq_label) {
+                    snprintf(buffer, sizeof(buffer), "CPU: %.0f MHz", freq);
+                    lv_label_set_text(cpu_freq_label, buffer);
+                    displayPrintLog("Updated CPU Freq: %.0f MHz\r\n", freq);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple4") == 0) {
+            // CPU功耗
+            float power = 0.0f;
+            if (sscanf(value_str, ">CPU Package %f W", &power) == 1 ||
+                sscanf(value_str, ">CPUPackage%fW", &power) == 1) {
+                if (cpu_power_label) {
+                    snprintf(buffer, sizeof(buffer), "CPU: %.1f W", power);
+                    lv_label_set_text(cpu_power_label, buffer);
+                    displayPrintLog("Updated CPU Power: %.1f W\r\n", power);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple6") == 0) {
+            // GPU功耗
+            float power = 0.0f;
+            if (sscanf(value_str, ">GPU 1 %f W", &power) == 1 ||
+                sscanf(value_str, ">GPU1%fW", &power) == 1) {
+                if (gpu_power_label) {
+                    snprintf(buffer, sizeof(buffer), "GPU: %.1f W", power);
+                    lv_label_set_text(gpu_power_label, buffer);
+                    displayPrintLog("Updated GPU Power: %.1f W\r\n", power);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple11") == 0) {
+            // GPU使用率
+            float percentage = 0.0f;
+            if (sscanf(value_str, ">GPU1 使用率 %f%%", &percentage) == 1 ||
+                sscanf(value_str, ">GPU1使用率%f%%", &percentage) == 1) {
+                if (gpu_bar && gpu_label) {
+                    lv_bar_set_value(gpu_bar, (int)percentage, LV_ANIM_ON);
+                    snprintf(buffer, sizeof(buffer), "%.1f%%", percentage);
+                    lv_label_set_text(gpu_label, buffer);
+                    displayPrintLog("Updated GPU: %.1f%%\r\n", percentage);
+                    display_updated = true;
+                }
+            }
+        }
+        else if (strcmp(data.id, "Simple9") == 0) {
+            // 下载速率
+            if (net_down_label) {
+                // 提取数值部分，移除中文字符
+                const char* rate_start = strstr(value_str, "0.0");
+                if (!rate_start) {
+                    // 如果没有找到0.0，尝试查找其他数字
+                    rate_start = value_str;
+                    while (*rate_start && !isdigit(*rate_start)) {
+                        rate_start++;
+                    }
+                }
+                
+                if (rate_start && *rate_start) {
+                    snprintf(buffer, sizeof(buffer), "Down: %s", rate_start);
+                } else {
+                    snprintf(buffer, sizeof(buffer), "Down: 0.0 KB/s");
+                }
+                lv_label_set_text(net_down_label, buffer);
+                displayPrintLog("Updated Download: %s\r\n", value_str);
+                display_updated = true;
+            }
+        }
+        else if (strcmp(data.id, "Simple10") == 0) {
+            // 上传速率
+            if (net_up_label) {
+                // 提取数值部分，移除中文字符
+                const char* rate_start = strstr(value_str, "0.0");
+                if (!rate_start) {
+                    // 如果没有找到0.0，尝试查找其他数字
+                    rate_start = value_str;
+                    while (*rate_start && !isdigit(*rate_start)) {
+                        rate_start++;
+                    }
+                }
+                
+                if (rate_start && *rate_start) {
+                    snprintf(buffer, sizeof(buffer), "Up: %s", rate_start);
+                } else {
+                    snprintf(buffer, sizeof(buffer), "Up: 0.0 KB/s");
+                }
+                lv_label_set_text(net_up_label, buffer);
+                displayPrintLog("Updated Upload: %s\r\n", value_str);
+                display_updated = true;
+            }
+        }
+        else if (strcmp(data.id, "Simple12") == 0) {
+            // 主IP地址
+            if (local_ip_label) {
+                // 提取IP地址部分
+                const char* ip_start = value_str;
+                while (*ip_start && !isdigit(*ip_start)) {
+                    ip_start++;
+                }
+                
+                if (ip_start && *ip_start) {
+                    snprintf(buffer, sizeof(buffer), "Local: %s", ip_start);
+                } else {
+                    snprintf(buffer, sizeof(buffer), "Local: ---.---.---.---");
+                }
+                lv_label_set_text(local_ip_label, buffer);
+                displayPrintLog("Updated Local IP: %s\r\n", value_str);
+                display_updated = true;
+            }
+        }
+        else if (strcmp(data.id, "Simple13") == 0) {
+            // 外部IP地址
+            if (external_ip_label) {
+                // 提取IP地址部分
+                const char* ip_start = value_str;
+                while (*ip_start && !isdigit(*ip_start)) {
+                    ip_start++;
+                }
+                
+                if (ip_start && *ip_start) {
+                    snprintf(buffer, sizeof(buffer), "Ext: %s", ip_start);
+                } else {
+                    snprintf(buffer, sizeof(buffer), "Ext: ---.---.---.---");
+                }
+                lv_label_set_text(external_ip_label, buffer);
+                displayPrintLog("Updated External IP: %s\r\n", value_str);
+                display_updated = true;
+            }
+        }
+        else if (strcmp(data.id, "Simple14") == 0) {
+            // 已用显存
+            float vram_mb = 0.0f;
+            if (sscanf(value_str, ">已用显存 %f MB", &vram_mb) == 1 ||
+                sscanf(value_str, ">已用显存%fMB", &vram_mb) == 1) {
+                if (gpu_mem_label) {
+                    snprintf(buffer, sizeof(buffer), "VRAM: %.0f MB", vram_mb);
+                    lv_label_set_text(gpu_mem_label, buffer);
+                    displayPrintLog("Updated GPU Memory: %.0f MB\r\n", vram_mb);
+                    display_updated = true;
+                }
+            }
+        }
+    }
+    
+    // 如果有数据更新，强制刷新显示
+    if (display_updated) {
+        lv_obj_invalidate(main_screen);
+        lv_refr_now(disp);
+        displayPrintLog("Display refreshed after data update\r\n");
+    }
+}
+
+void SCREEN_DISPLAY_ENHANCED::clear() {
+    if (main_screen) {
+        lv_obj_clean(main_screen);
+        createUI();
+    }
+}
+
+void SCREEN_DISPLAY_ENHANCED::updateDisplay() {
+    // LVGL 自动处理显示更新
+}
+
+void SCREEN_DISPLAY_ENHANCED::tick() {
+    lv_timer_handler();
+}
+
+// 静态回调函数
+void SCREEN_DISPLAY_ENHANCED::disp_flush(lv_disp_drv_t* disp_drv, const lv_area_t* area, lv_color_t* color_p) {
+    SCREEN_DISPLAY_ENHANCED* display = (SCREEN_DISPLAY_ENHANCED*)disp_drv->user_data;
+    
+    uint32_t w = (area->x2 - area->x1 + 1);
+    uint32_t h = (area->y2 - area->y1 + 1);
+    
+    display->tft.startWrite();
+    display->tft.setAddrWindow(area->x1, area->y1, w, h);
+    display->tft.pushColors((uint16_t*)&color_p->full, w * h, true);
+    display->tft.endWrite();
+    
+    lv_disp_flush_ready(disp_drv);
+}
+
+void SCREEN_DISPLAY_ENHANCED::disp_flush_ready(lv_disp_drv_t* disp_drv) {
+    // 刷新完成回调
+}
+
+// 全局实例
+SCREEN_DISPLAY_ENHANCED display_enhanced;
