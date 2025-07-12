@@ -53,7 +53,7 @@
 
 ### 步骤2: 导入显示配置
 1. 在AIDA64中选择"LCD项目"
-2. 将项目中的 `aida64config/2025-07-12-fixed.rslcd`（中文版）或 `aida64config/2025-07-12-english.rslcd`（英文版）导入
+2. 将项目中的 `aida64config/chinese.rslcd`（中文版）或 `aida64config/eng.rslcd`（英文版）导入
 3. 点击确定
 
 ### 步骤3: 验证网络连接
@@ -121,8 +121,9 @@ ESP32_AIDA64_GP1294AI/
 │   ├── display.h         # 显示相关
 │   └── time_manager.h    # 时间管理
 ├── aida64config/         # AIDA64配置文件
-│   ├── 2025-07-12-fixed.rslcd    # 中文配置
-│   └── 2025-07-12-english.rslcd  # 英文配置
+│   ├── chinese.rslcd     # 中文配置
+│   ├── eng.rslcd         # 英文配置
+│   └── example.rslcd     # 示例配置
 ├── lv_conf.h             # LVGL配置
 └── platformio.ini        # PlatformIO配置
 ```

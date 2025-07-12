@@ -56,7 +56,7 @@ The project supports displaying the following 14 system monitoring parameters:
 
 ### Step 2: Import Display Configuration
 1. In AIDA64, select "LCD Items"
-2. Import either `aida64config/2025-07-12-fixed.rslcd` (Chinese) or `aida64config/2025-07-12-english.rslcd` (English) from the project
+2. Import either `aida64config/chinese.rslcd` (Chinese) or `aida64config/eng.rslcd` (English) from the project
 3. Click OK
 
 ### Step 3: Verify Network Connection
@@ -124,8 +124,9 @@ ESP32_AIDA64_GP1294AI/
 │   ├── display.h         # Display related
 │   └── time_manager.h    # Time management
 ├── aida64config/         # AIDA64 configuration files
-│   ├── 2025-07-12-fixed.rslcd    # Chinese configuration
-│   └── 2025-07-12-english.rslcd  # English configuration
+│   ├── chinese.rslcd     # Chinese configuration
+│   ├── eng.rslcd         # English configuration
+│   └── example.rslcd     # Example configuration
 ├── lv_conf.h             # LVGL configuration
 └── platformio.ini        # PlatformIO configuration
 ```
