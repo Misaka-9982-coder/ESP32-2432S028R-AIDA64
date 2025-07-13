@@ -59,6 +59,28 @@ The project supports displaying the following 14 system monitoring parameters:
 2. Import either `aida64config/chinese.rslcd` (Chinese) or `aida64config/eng.rslcd` (English) from the project
 3. Click OK
 
+**⚠️ Important: Network Interface Configuration**
+
+The example configuration uses NIC7 for network speed monitoring. You need to modify the network interface settings to match your system:
+
+1. **Find Your Active Network Interface**:
+   - Open AIDA64 → Computer → Summary → Network
+   - Identify your active network adapter (usually WiFi or Ethernet)
+   - Note the interface number (NIC1, NIC2, NIC3, etc.)
+
+2. **Update Configuration for Your Network Interface**:
+   - If your active interface is NIC1, change the following in the `.rslcd` file:
+     - Find: `<ID>[SIMPLE]SNIC7DLRATE</ID>` → Change to: `<ID>[SIMPLE]SNIC1DLRATE</ID>`
+     - Find: `<ID>[SIMPLE]SNIC7ULRATE</ID>` → Change to: `<ID>[SIMPLE]SNIC1ULRATE</ID>`
+   - For other interfaces (NIC2, NIC3, etc.), replace the number accordingly
+
+3. **Alternative: Use AIDA64 GUI**:
+   - Instead of editing the file, you can use AIDA64's LCD configuration interface
+   - Add new items and select the correct network interface from the dropdown
+   - The current project maps to Simple9 (download) and Simple10 (upload) in the ESP32 code
+
+**Note**: If network speeds show 0.0 KB/s, it means the configured network interface (Simple9/Simple10) doesn't match your active network adapter.
+
 ### Step 3: Verify Network Connection
 Enter "Local IP:Port" in browser (e.g., http://192.168.1.100:8080) to verify AIDA64 panel is working. Test with other devices on the LAN to ensure firewall isn't blocking.
 
@@ -144,6 +166,7 @@ ESP32_AIDA64_GP1294AI/
 2. **Cannot Get Data**: Verify AIDA64 settings and firewall configuration
 3. **Display Issues**: Check TFT display connection and configuration
 4. **Incorrect Time**: Check network connection and timezone settings
+5. **Network Speed Shows 0.0 KB/s**: The configured network interface (Simple9/Simple10) doesn't match your active network adapter. Check Step 2 for network interface configuration instructions
 
 ## Version History
 - **v2.0** - Migration to ESP32-2432S028R + TFT color display

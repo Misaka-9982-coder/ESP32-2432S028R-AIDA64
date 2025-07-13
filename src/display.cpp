@@ -347,9 +347,16 @@ void SCREEN_DISPLAY_ENHANCED::updateSystemInfo(std::vector<AIDA64_DATA> &dataLis
             float memory_mb = 0.0f;
             if (sscanf(value_str, ">已用内存 %f MB", &memory_mb) == 1) {
                 if (mem_usage_label) {
-                    snprintf(buffer, sizeof(buffer), "Used: %.0f MB", memory_mb);
+                    // 当内存使用超过1GB时，显示GB单位
+                    if (memory_mb >= 1024.0f) {
+                        float memory_gb = memory_mb / 1024.0f;
+                        snprintf(buffer, sizeof(buffer), "Used: %.1f GB", memory_gb);
+                        displayPrintLog("Updated Memory Usage: %.1f GB\r\n", memory_gb);
+                    } else {
+                        snprintf(buffer, sizeof(buffer), "Used: %.0f MB", memory_mb);
+                        displayPrintLog("Updated Memory Usage: %.0f MB\r\n", memory_mb);
+                    }
                     lv_label_set_text(mem_usage_label, buffer);
-                    displayPrintLog("Updated Memory Usage: %.0f MB\r\n", memory_mb);
                     display_updated = true;
                 }
             }
@@ -360,9 +367,16 @@ void SCREEN_DISPLAY_ENHANCED::updateSystemInfo(std::vector<AIDA64_DATA> &dataLis
             if (sscanf(value_str, ">CPU 核心频率 %f MHz", &freq) == 1 ||
                 sscanf(value_str, ">CPU核心频率%fMHz", &freq) == 1) {
                 if (cpu_freq_label) {
-                    snprintf(buffer, sizeof(buffer), "CPU: %.0f MHz", freq);
+                    // 当频率超过1000MHz时，显示GHz单位
+                    if (freq >= 1000.0f) {
+                        float freq_ghz = freq / 1000.0f;
+                        snprintf(buffer, sizeof(buffer), "CPU: %.2f GHz", freq_ghz);
+                        displayPrintLog("Updated CPU Freq: %.2f GHz\r\n", freq_ghz);
+                    } else {
+                        snprintf(buffer, sizeof(buffer), "CPU: %.0f MHz", freq);
+                        displayPrintLog("Updated CPU Freq: %.0f MHz\r\n", freq);
+                    }
                     lv_label_set_text(cpu_freq_label, buffer);
-                    displayPrintLog("Updated CPU Freq: %.0f MHz\r\n", freq);
                     display_updated = true;
                 }
             }
@@ -410,46 +424,104 @@ void SCREEN_DISPLAY_ENHANCED::updateSystemInfo(std::vector<AIDA64_DATA> &dataLis
         else if (strcmp(data.id, "Simple9") == 0) {
             // 下载速率
             if (net_down_label) {
-                // 提取数值部分，移除中文字符
-                const char* rate_start = strstr(value_str, "0.0");
-                if (!rate_start) {
-                    // 如果没有找到0.0，尝试查找其他数字
-                    rate_start = value_str;
-                    while (*rate_start && !isdigit(*rate_start)) {
-                        rate_start++;
-                    }
-                }
+                // 解析网络速率，格式: >NIC[1-7]下载速率数值单位
+                float rate_value = 0.0f;
+                char rate_unit[16] = "KB/s";
                 
-                if (rate_start && *rate_start) {
-                    snprintf(buffer, sizeof(buffer), "Down: %s", rate_start);
+                // 使用正则表达式风格的解析，匹配数值和单位
+                const char* ptr = value_str;
+                while (*ptr && !isdigit(*ptr) && *ptr != '.') ptr++; // 跳过非数字字符
+                
+                if (*ptr) {
+                    // 提取数值
+                    if (sscanf(ptr, "%f", &rate_value) == 1) {
+                        // 查找单位
+                        while (*ptr && (isdigit(*ptr) || *ptr == '.')) ptr++;
+                        
+                        // 提取单位部分（跳过中文字符）
+                        const char* unit_start = ptr;
+                        int unit_idx = 0;
+                        while (*unit_start && unit_idx < 15) {
+                            if ((*unit_start >= 'A' && *unit_start <= 'Z') || 
+                                (*unit_start >= 'a' && *unit_start <= 'z') ||
+                                *unit_start == '/' || *unit_start == 's') {
+                                rate_unit[unit_idx++] = *unit_start;
+                            }
+                            unit_start++;
+                        }
+                        rate_unit[unit_idx] = '\0';
+                        
+                        if (strlen(rate_unit) == 0) {
+                            strcpy(rate_unit, "KB/s");
+                        }
+                        
+                        // 单位转换：当速度超过1MB/s时显示MB/s
+                        if (strcmp(rate_unit, "KB/s") == 0 && rate_value >= 1024.0f) {
+                            rate_value = rate_value / 1024.0f;
+                            strcpy(rate_unit, "MB/s");
+                            snprintf(buffer, sizeof(buffer), "Down: %.1f %s", rate_value, rate_unit);
+                        } else {
+                            snprintf(buffer, sizeof(buffer), "Down: %.1f %s", rate_value, rate_unit);
+                        }
+                    }
                 } else {
                     snprintf(buffer, sizeof(buffer), "Down: 0.0 KB/s");
                 }
+                
                 lv_label_set_text(net_down_label, buffer);
-                displayPrintLog("Updated Download: %s\r\n", value_str);
+                displayPrintLog("Updated Download: %s (raw: %s)\r\n", buffer, value_str);
                 display_updated = true;
             }
         }
         else if (strcmp(data.id, "Simple10") == 0) {
             // 上传速率
             if (net_up_label) {
-                // 提取数值部分，移除中文字符
-                const char* rate_start = strstr(value_str, "0.0");
-                if (!rate_start) {
-                    // 如果没有找到0.0，尝试查找其他数字
-                    rate_start = value_str;
-                    while (*rate_start && !isdigit(*rate_start)) {
-                        rate_start++;
-                    }
-                }
+                // 解析网络速率，格式: >NIC[1-7]上传速率数值单位
+                float rate_value = 0.0f;
+                char rate_unit[16] = "KB/s";
                 
-                if (rate_start && *rate_start) {
-                    snprintf(buffer, sizeof(buffer), "Up: %s", rate_start);
+                // 使用正则表达式风格的解析，匹配数值和单位
+                const char* ptr = value_str;
+                while (*ptr && !isdigit(*ptr) && *ptr != '.') ptr++; // 跳过非数字字符
+                
+                if (*ptr) {
+                    // 提取数值
+                    if (sscanf(ptr, "%f", &rate_value) == 1) {
+                        // 查找单位
+                        while (*ptr && (isdigit(*ptr) || *ptr == '.')) ptr++;
+                        
+                        // 提取单位部分（跳过中文字符）
+                        const char* unit_start = ptr;
+                        int unit_idx = 0;
+                        while (*unit_start && unit_idx < 15) {
+                            if ((*unit_start >= 'A' && *unit_start <= 'Z') || 
+                                (*unit_start >= 'a' && *unit_start <= 'z') ||
+                                *unit_start == '/' || *unit_start == 's') {
+                                rate_unit[unit_idx++] = *unit_start;
+                            }
+                            unit_start++;
+                        }
+                        rate_unit[unit_idx] = '\0';
+                        
+                        if (strlen(rate_unit) == 0) {
+                            strcpy(rate_unit, "KB/s");
+                        }
+                        
+                        // 单位转换：当速度超过1MB/s时显示MB/s
+                        if (strcmp(rate_unit, "KB/s") == 0 && rate_value >= 1024.0f) {
+                            rate_value = rate_value / 1024.0f;
+                            strcpy(rate_unit, "MB/s");
+                            snprintf(buffer, sizeof(buffer), "Up: %.1f %s", rate_value, rate_unit);
+                        } else {
+                            snprintf(buffer, sizeof(buffer), "Up: %.1f %s", rate_value, rate_unit);
+                        }
+                    }
                 } else {
                     snprintf(buffer, sizeof(buffer), "Up: 0.0 KB/s");
                 }
+                
                 lv_label_set_text(net_up_label, buffer);
-                displayPrintLog("Updated Upload: %s\r\n", value_str);
+                displayPrintLog("Updated Upload: %s (raw: %s)\r\n", buffer, value_str);
                 display_updated = true;
             }
         }
@@ -497,9 +569,16 @@ void SCREEN_DISPLAY_ENHANCED::updateSystemInfo(std::vector<AIDA64_DATA> &dataLis
             if (sscanf(value_str, ">已用显存 %f MB", &vram_mb) == 1 ||
                 sscanf(value_str, ">已用显存%fMB", &vram_mb) == 1) {
                 if (gpu_mem_label) {
-                    snprintf(buffer, sizeof(buffer), "VRAM: %.0f MB", vram_mb);
+                    // 当显存使用超过1GB时，显示GB单位
+                    if (vram_mb >= 1024.0f) {
+                        float vram_gb = vram_mb / 1024.0f;
+                        snprintf(buffer, sizeof(buffer), "VRAM: %.1f GB", vram_gb);
+                        displayPrintLog("Updated GPU Memory: %.1f GB\r\n", vram_gb);
+                    } else {
+                        snprintf(buffer, sizeof(buffer), "VRAM: %.0f MB", vram_mb);
+                        displayPrintLog("Updated GPU Memory: %.0f MB\r\n", vram_mb);
+                    }
                     lv_label_set_text(gpu_mem_label, buffer);
-                    displayPrintLog("Updated GPU Memory: %.0f MB\r\n", vram_mb);
                     display_updated = true;
                 }
             }
